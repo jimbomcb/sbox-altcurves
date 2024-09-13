@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Sandbox.UI;
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -9,6 +10,7 @@ namespace AltCurves;
 
 /// <summary>
 /// AltCurve, Curves with an extended editor and better performance.
+/// A valid, initialized AltCurve must have 1 or more keyframes in distinct ascending time order.
 /// </summary>
 [JsonConverter( typeof( JsonConverter ) )]
 public readonly partial record struct AltCurve
@@ -52,12 +54,13 @@ public readonly partial record struct AltCurve
 
 	public AltCurve( IEnumerable<Keyframe> keyframes, Extrapolation preInfinity, Extrapolation postInfinity )
 	{
-		Keyframes = keyframes.ToImmutableArray();
+		// Don't allow a curve consisting of 0 keyframes, if none exist then add one default keyframe.
+		Keyframes = keyframes.Any() ? keyframes.ToImmutableArray() : ImmutableArray.Create( new Keyframe() );
 		PreInfinity = preInfinity;
 		PostInfinity = postInfinity;
 
-		TimeRange = Keyframes.Any() ? (Keyframes[0].Time, Keyframes[^1].Time) : (0, 0);
-		ValueRange = Keyframes.Any() ? (Keyframes[0].Value, Keyframes[0].Value) : (0.0f, 0.0f);
+		TimeRange = (Keyframes[0].Time, Keyframes[^1].Time);
+		ValueRange = (Keyframes[0].Value, Keyframes[0].Value);
 
 		if ( Keyframes.Length > 1 )
 		{
@@ -88,8 +91,10 @@ public readonly partial record struct AltCurve
 		}
 	}
 
-	public AltCurve() :
-		this( ImmutableArray<Keyframe>.Empty, Extrapolation.Constant, Extrapolation.Constant )
+	/// <summary>
+	/// Default constructor contains one single default keyframe
+	/// </summary>
+	public AltCurve() : this( ImmutableArray.Create( new Keyframe() ), Extrapolation.Constant, Extrapolation.Constant )
 	{
 	}
 
@@ -108,7 +113,18 @@ public readonly partial record struct AltCurve
 	// https://github.com/dotnet/runtime/issues/77183 Unfortunately it sounds like this will never be a sensible default
 	// So for now just provide our own equality that will be used instead (even though it's not referenced, 
 	// https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/proposals/csharp-10.0/record-structs#equality-members)
-	public readonly bool Equals( AltCurve other ) => Keyframes.SequenceEqual( other.Keyframes ) && PreInfinity == other.PreInfinity && PostInfinity == other.PostInfinity;
+	public readonly bool Equals( AltCurve other )
+	{
+		if ( PreInfinity != other.PreInfinity || PostInfinity != other.PostInfinity )
+			return false;
+
+		// Skip SequenceEqual if the keyframe arrays have not been initialized (ie this is default(AltCurve))
+		if ( Keyframes.IsDefault || other.Keyframes.IsDefault )
+			return Keyframes.IsDefault == other.Keyframes.IsDefault;
+		else
+			return Keyframes.SequenceEqual( other.Keyframes );
+	}
+
 	public override int GetHashCode() => HashCode.Combine( Keyframes, PreInfinity, PostInfinity );
 
 	/// <summary>
@@ -116,10 +132,11 @@ public readonly partial record struct AltCurve
 	/// Time complexity: O(log n)
 	/// </summary>
 	[MethodImpl( MethodImplOptions.AggressiveInlining )] // Notable gains from profiling
-	public readonly float Evaluate( float time, float defaultValue = 0.0f )
+	public readonly float Evaluate( float time )
 	{
-		if ( Keyframes.Length == 0 )
-			return defaultValue; // No keyframes, return default value
+		// Evaluations on an empty curve will always evaluate as 0
+		if ( Keyframes.IsDefault || Keyframes.Length == 0 )
+			return 0.0f;
 
 		if ( Keyframes.Length == 1 )
 			return Keyframes[0].Value; // Only one keyframe, return its value

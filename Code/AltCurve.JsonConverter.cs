@@ -26,7 +26,7 @@ public readonly partial record struct AltCurve
 			uint version = 0;
 			Extrapolation preInfinity = 0;
 			Extrapolation postInfinity = 0;
-			List<Keyframe> keyframes = null;
+			List<Keyframe> keyframes = new();
 
 			while ( reader.Read() )
 			{
@@ -76,12 +76,25 @@ public readonly partial record struct AltCurve
 			writer.WriteStartObject();
 			writer.WritePropertyName( TokenName_Version );
 			writer.WriteNumberValue( SERIALIZE_VERSION );
-			writer.WritePropertyName( TokenName_PreInfinity );
-			JsonSerializer.Serialize( writer, val.PreInfinity, options );
-			writer.WritePropertyName( TokenName_PostInfinity );
-			JsonSerializer.Serialize( writer, val.PostInfinity, options );
-			writer.WritePropertyName( TokenName_Keys );
-			JsonSerializer.Serialize( writer, val.Keyframes, options );
+
+			if ( val.PreInfinity != default( AltCurve ).PreInfinity )
+			{
+				writer.WritePropertyName( TokenName_PreInfinity );
+				JsonSerializer.Serialize( writer, val.PreInfinity, options );
+			}
+
+			if ( val.PostInfinity != default( AltCurve ).PostInfinity )
+			{
+				writer.WritePropertyName( TokenName_PostInfinity );
+				JsonSerializer.Serialize( writer, val.PostInfinity, options );
+			}
+
+			if ( !val.Keyframes.IsDefaultOrEmpty )
+			{
+				writer.WritePropertyName( TokenName_Keys );
+				JsonSerializer.Serialize( writer, val.Keyframes, options );
+			}
+
 			writer.WriteEndObject();
 		}
 	}

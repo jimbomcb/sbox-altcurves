@@ -2,6 +2,7 @@
 using Sandbox;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using static AltCurves.AltCurve;
 
@@ -24,6 +25,10 @@ public partial class EditableAltCurve : GraphicsItem
 		get => _rawCurveInternal;
 		set
 		{
+			// Ensure that we're constructing a valid AltCurve (at least 1 keyframe)
+			if ( value.Keyframes.IsDefaultOrEmpty )
+				value = new AltCurve();
+
 			// Generate a sanitized version of the curve, removing duplicate times and fixing ordering
 			var sanitizedCurveKeyframes = value.SanitizedKeyframes.ToList();
 
@@ -36,11 +41,10 @@ public partial class EditableAltCurve : GraphicsItem
 
 			_sanitizedCurve = value.WithKeyframes( sanitizedCurveKeyframes );
 
-			var rawKeyframes = value.Keyframes.ToList();
-
 			// Copy the keyframe data from the sanitized curve to the raw curve
 			// Each sanitized keyframe is guaranteed to have a corresponding raw keyframe.
-			for ( int sanitizedIdx = 0; sanitizedIdx < _sanitizedCurve.Keyframes.Length; sanitizedIdx++ )
+			var rawKeyframes = value.Keyframes.ToList();
+			for ( int sanitizedIdx = 0; sanitizedIdx < sanitizedCurveKeyframes.Count; sanitizedIdx++ )
 			{
 				var rawKeyframeId = _sanitizedToRawIdMap[sanitizedIdx];
 				rawKeyframes[rawKeyframeId] = sanitizedCurveKeyframes[sanitizedIdx];
@@ -52,7 +56,6 @@ public partial class EditableAltCurve : GraphicsItem
 					_keyframes[rawKeyframeId].DragHandle.Keyframe = sanitizedCurveKeyframes[sanitizedIdx];
 				}
 			}
-
 			_rawCurveInternal = value.WithKeyframes( rawKeyframes );
 
 			Update();
@@ -1083,6 +1086,13 @@ public partial class EditableAltCurve : GraphicsItem
 			// Try preserve the zoom level of the current transform and just focus on moving it
 			var currentTimeRange = _curveTransform.CurveRange.MaxX - _curveTransform.CurveRange.MinX;
 			var currentValueRange = _curveTransform.CurveRange.MaxY - _curveTransform.CurveRange.MinY;
+
+			// Snap range back to default if we don't have any current time range (ie 1 keyframe)
+			if ( currentTimeRange <= float.Epsilon )
+				currentTimeRange = 2.0f;
+
+			if ( currentValueRange <= float.Epsilon )
+				currentValueRange = 2.0f;
 
 			return new( keyframe.Time - (currentTimeRange * 0.5f), keyframe.Time + (currentTimeRange * 0.5f), keyframe.Value - (currentValueRange * 0.5f), keyframe.Value + (currentValueRange * 0.5f) );
 		}

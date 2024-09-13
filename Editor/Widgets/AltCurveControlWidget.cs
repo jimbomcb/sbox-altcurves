@@ -19,8 +19,6 @@ public class AltCurveControlWidget : ControlWidget
 	protected override void PaintOver()
 	{
 		var value = SerializedProperty.GetValue<AltCurve>();
-		if ( value.Keyframes == null )
-			return;
 
 		var col = HighlightColor.WithAlpha( Paint.HasMouseOver ? 1 : 0.75f );
 		var inner = LocalRect.Shrink( 2.0f );
