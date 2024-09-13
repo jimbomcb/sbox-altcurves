@@ -88,8 +88,9 @@ public partial class AltCurveTests
 	[TestMethod]
 	public void CurveConstruct()
 	{
+		// It's not valid to have a curve with 0 keyframes, trying to make such a curve will add 1 default key
 		var curve = new AltCurve();
-		Assert.AreEqual( 0, curve.Keyframes.Length );
+		Assert.AreEqual( 1, curve.Keyframes.Length );
 		Assert.AreEqual( Extrapolation.Constant, curve.PreInfinity );
 		Assert.AreEqual( Extrapolation.Constant, curve.PostInfinity );
 	}
