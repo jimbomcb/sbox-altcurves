@@ -1,0 +1,1 @@
+- Prevent tangent from showing on the extents

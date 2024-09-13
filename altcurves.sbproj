@@ -1,0 +1,25 @@
+{
+  "Title": "Alternative Curve Editor",
+  "Type": "library",
+  "Org": "jimbomcb",
+  "Ident": "altcurves",
+  "Schema": 1,
+  "IncludeSourceFiles": true,
+  "Resources": null,
+  "PackageReferences": [],
+  "EditorReferences": null,
+  "IsWhitelistDisabled": false,
+  "Metadata": {
+    "CsProjName": "",
+    "Compiler": {
+      "RootNamespace": "AltCurves",
+      "DefineConstants": "SANDBOX;ADDON;DEBUG",
+      "NoWarn": "1701;1702;1591;",
+      "WarningsAsErrors": "",
+      "Whitelist": true,
+      "AssemblyReferences": [],
+      "IgnoreFolders": [],
+      "DistinctAssemblyReferences": []
+    }
+  }
+}
