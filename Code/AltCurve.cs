@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Sandbox.UI;
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -58,28 +59,11 @@ public readonly partial record struct AltCurve
 		PreInfinity = preInfinity;
 		PostInfinity = postInfinity;
 
-		// Check for out-of-order or duplicate keyframes
-		for ( int i = 0; i < Keyframes.Length - 1; i++ )
-		{
-			if ( Keyframes[i].Time > Keyframes[i + 1].Time )
-			{
-				throw new ArgumentException( $"Keyframes are out of order at index {i}. Keyframe times must be in ascending order." );
-			}
-
-			if ( Keyframes[i].Time == Keyframes[i + 1].Time )
-			{
-				throw new ArgumentException( $"Duplicate keyframe time found at index {i} and {i + 1}. Keyframe times must be unique." );
-			}
-		}
-
 		TimeRange = (Keyframes[0].Time, Keyframes[^1].Time);
 		ValueRange = (Keyframes[0].Value, Keyframes[0].Value);
 
 		if ( Keyframes.Length > 1 )
 		{
-			float totalMin = float.MaxValue;
-			float totalMax = float.MinValue;
-
 			var ranges = new List<(float Min, float Max)>( Keyframes.Length );
 			for ( int i = 0; i < Keyframes.Length - 1; i++ )
 			{
@@ -91,23 +75,19 @@ public readonly partial record struct AltCurve
 				if ( Keyframes[i].Interpolation == Interpolation.Cubic )
 				{
 					const int steps = 10;
-					float timeDiff = Keyframes[i + 1].Time - Keyframes[i].Time;
 					for ( float t = 0.0f; t <= 1.0f; t += (1.0f / steps) )
 					{
-						float interpolatedTime = Keyframes[i].Time + timeDiff * t;
-						float value = GetInterpolatedValue( Keyframes[i], Keyframes[i + 1], interpolatedTime );
+						float value = GetInterpolatedValue( Keyframes[i], Keyframes[i + 1], Keyframes[i].Time + (Keyframes[i + 1].Time - Keyframes[i].Time) * t );
 						min = Math.Min( min, value );
 						max = Math.Max( max, value );
 					}
 				}
 
-				totalMin = Math.Min( totalMin, min );
-				totalMax = Math.Max( totalMax, max );
 				ranges.Add( (min, max) );
 			}
 
 			KeyframeValueRanges = ranges.ToImmutableArray();
-			ValueRange = (totalMin, totalMax);
+			ValueRange = (ranges.Min( r => r.Min ), ranges.Max( r => r.Max ));
 		}
 	}
 
@@ -121,16 +101,6 @@ public readonly partial record struct AltCurve
 	public AltCurve( AltCurve copy, IEnumerable<Keyframe> replacementKeyframes ) :
 		this( replacementKeyframes, copy.PreInfinity, copy.PostInfinity )
 	{
-	}
-
-	/// <summary>
-	/// Return an enumerable of the sanitized keys of this AltCurve, in particular:
-	/// - No keys may share an identical time
-	/// - All keys must be in ascending time order
-	/// </summary>
-	public static IEnumerable<Keyframe> SanitizeKeyframes( IEnumerable<Keyframe> keyframes )
-	{
-		return keyframes.DistinctBy( x => x.Time ).OrderBy( x => x.Time );
 	}
 
 	/// <summary>
@@ -304,6 +274,47 @@ public readonly partial record struct AltCurve
 				throw new NotImplementedException( "Interpolation type not implemented" );
 		}
 	}
+
+	/// <summary>
+	/// Return a version of this AltCurve but with a sanitized set of keyframes, in particular:
+	/// - No keys may share an identical time
+	/// - All keys must be in ascending time order
+	/// </summary>
+	public readonly AltCurve Sanitize( bool silent = false )
+	{
+		var cleanKeyframes = SanitizedKeyframes;
+
+#if DEBUG
+		if ( !silent )
+		{
+			// Warnings if we're actually making any modifications
+			if ( cleanKeyframes.Count() != Keyframes.Length )
+			{
+				Log.Warning( "Removed invalid AltCurve keyframes, multiple keyframes can not share a time. Either move the invalid keyframe, or it will be removed automatically." );
+			}
+			else
+			{
+				for ( int i = 1; i < cleanKeyframes.Count(); i++ )
+				{
+					if ( cleanKeyframes.ElementAt( i ).Time != Keyframes[i].Time )
+					{
+						Log.Warning( "Invalid AltCurve keyframe ordering detected, times were automatically reordered." );
+						break;
+					}
+				}
+			}
+		}
+#endif
+
+		return new( this, cleanKeyframes );
+	}
+
+	/// <summary>
+	/// Return an enumerable of the sanitized keys of this AltCurve, in particular:
+	/// - No keys may share an identical time
+	/// - All keys must be in ascending time order
+	/// </summary>
+	public readonly IEnumerable<Keyframe> SanitizedKeyframes => Keyframes.DistinctBy( x => x.Time ).OrderBy( x => x.Time );
 
 	/// <summary>
 	/// De Casteljau's algorithm bezier curve (6 lerps)

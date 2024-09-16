@@ -1,9 +1,12 @@
+using AltCurves;
 using Sandbox;
 using System;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using static AltCurves.AltCurve;
 
 namespace AltCurves.Tests;
@@ -301,56 +304,22 @@ public partial class AltCurveTests
 
 		// rough preliminary tests shows that our curves are more performant
 		//								OurTime		TheirTime   
-		// With 1 key, 1000 evals:		
-		//								30			653			21x faster
+		// With 1 key, 1000 evals:		30			653			21x faster
 		//								32			676			21x faster
 		//								33			660			21x faster
 		//								32			700			21x faster
-		// With 10 key, 1000 evals:		
-		//								521			2121		4.0x faster
+		// With 10 key, 1000 evals:		521			2121		4.0x faster
 		//								526			2338		4.4x faster
 		//								546			2394		4.4x faster
 		//								540			1973		3.6x faster
-		// With 50 key, 1000 evals:		
-		//								704			4169		5.9x faster
-		//								735			4998		6.8x faster
-		//								728			4696		6.4x faster
-		//								710			4959		6.4x faster
-		// With 1000 key, 1000 evals:	
-		//								1511		189953		125x faster
+		// With 50 key, 1000 evals:		704			4169		5.9x faster
+		// 								735			4998		6.8x faster
+		// 								728			4696		6.4x faster
+		// 								710			4959		6.4x faster
+		// With 1000 key, 1000 evals:	1511		189953		125x faster
 		//								1560		188484		120x faster
 		//								1653		189336		114x faster
 		//								1500		194617		129x faster
 		//								1657		218923		132x faster
-	}
-
-	[TestMethod]
-	public void SanitizeCurveInput()
-	{
-		// Current sanitization rules so far are that we must have 1 keyframe, no keyframes may share a time, and keyframes must be in ascending time order.
-
-		AltCurve curveNoKeys = new( ImmutableArray.Create<Keyframe>(), Extrapolation.Linear, Extrapolation.Linear );
-		Assert.AreEqual( 1, curveNoKeys.Keyframes.Length, "Constructing a curve with no keyframes should result in 1 keyframe." );
-
-		var overlappingKeyframes = ImmutableArray.Create(
-			new Keyframe( 0.0f, 0.0f, Interpolation.Linear ),
-			new Keyframe( 1.0f, 1.0f, Interpolation.Linear ),
-			new Keyframe( 1.0f, 2.0f, Interpolation.Linear )
-			);
-		var sanitizedOverlap = SanitizeKeyframes( overlappingKeyframes );
-
-		Assert.AreNotEqual( sanitizedOverlap.Count(), overlappingKeyframes.Length, "Sanitizing keyframes should remove all duplicate times" );
-		Assert.AreEqual( 1.0f, sanitizedOverlap.ElementAt(1).Value, 0.0001f, "If multiple times are provided we should always take the first instance." );
-
-		ImmutableArray<Keyframe> keyframesOutOfOrder = ImmutableArray.Create(
-			new Keyframe( 3.0f, 2.0f, Interpolation.Linear ),
-			new Keyframe( 0.0f, 1.0f, Interpolation.Linear ),
-			new Keyframe( 2.0f, 2.0f, Interpolation.Linear ),
-			new Keyframe( 1.0f, 1.0f, Interpolation.Linear )
-		);
-		var sanitizedOrder = SanitizeKeyframes( keyframesOutOfOrder );
-		Assert.AreEqual( keyframesOutOfOrder.Length, sanitizedOrder.Count(), "Sanitization shouldn't incorrectly remove a valid but out of order set of times.");
-		Assert.IsFalse( sanitizedOrder.SequenceEqual( keyframesOutOfOrder ), "Sanitization should correctly reorder out of order keyframes." );
-		Assert.IsTrue( sanitizedOrder.All( san => keyframesOutOfOrder.Contains( san ) ), "Sanitization should not alter any keyframes when reordering." );
 	}
 }

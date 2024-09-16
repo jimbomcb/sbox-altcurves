@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -33,31 +32,15 @@ public readonly partial record struct AltCurve
 			{
 				if ( reader.TokenType == JsonTokenType.EndObject )
 				{
-					if ( version != SERIALIZE_VERSION )
-						throw new JsonException( $"Error parsing AltCurve json, unsupported version: {version} vs {SERIALIZE_VERSION}" );
-
-#if DEBUG
-					// Warn in debug mode if the sanitized keyframe differs from what we tried to load
-					var sanitizedKeyframes = SanitizeKeyframes( keyframes );
-					if ( !sanitizedKeyframes.SequenceEqual( keyframes ) )
+					if ( version == SERIALIZE_VERSION )
 					{
-						// Notify of keyframe removals
-						foreach ( var removedKey in keyframes.Except( sanitizedKeyframes ) )
-						{
-							Log.Error( $"Discarded invalid AltCurve keyframe JSON, no keyframes in a curve may share a time. Removed keyframe: '{removedKey}'." );
-						}
-					
-						// Check if remaining keyframes are in the same order (intersection should be equal to sanitized keyframes)
-						if ( !keyframes.Intersect( sanitizedKeyframes ).SequenceEqual( sanitizedKeyframes ) )
-						{
-							Log.Error( "AltCurve keyframe JSON out-of-order, performed fixup." );
-						}
-
-						keyframes = sanitizedKeyframes.ToList();
+						var exCurve = new AltCurve( keyframes, (Extrapolation)preInfinity, (Extrapolation)postInfinity );
+						return exCurve.Sanitize();
 					}
-#endif
-
-					return new( keyframes, preInfinity, postInfinity );
+					else
+					{
+						throw new JsonException( $"Error parsing ExCurve json, unsupported version: {version} vs {SERIALIZE_VERSION}" );
+					}
 				}
 
 				if ( reader.TokenType == JsonTokenType.PropertyName )

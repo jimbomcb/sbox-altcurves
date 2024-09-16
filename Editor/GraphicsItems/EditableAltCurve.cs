@@ -2,6 +2,7 @@
 using Sandbox;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using static AltCurves.AltCurve;
 
@@ -29,7 +30,7 @@ public partial class EditableAltCurve : GraphicsItem
 				value = new AltCurve();
 
 			// Generate a sanitized version of the curve, removing duplicate times and fixing ordering
-			var sanitizedCurveKeyframes = SanitizeKeyframes( value.Keyframes ).ToList();
+			var sanitizedCurveKeyframes = value.SanitizedKeyframes.ToList();
 
 			// Build a map from the raw keyframe index to the sanitized keyframe index
 			_rawToSanitizedIdMap = sanitizedCurveKeyframes.Select( ( kf, index ) => new { kf, index } ).ToDictionary( x => value.Keyframes.IndexOf( x.kf ), x => x.index );
