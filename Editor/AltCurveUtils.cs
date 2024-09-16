@@ -78,7 +78,7 @@ internal static class AltCurveUtils
 	/// Draw a portion of a curve onto a widget, using the given widget/curve transform
 	/// </summary>
 
-	internal static void DrawPartialCurve( this AltCurve curve, CurveWidgetTransform transform, float spacing = 2.0f, float infinityAlpha = 0.4f )
+	internal static void DrawPartialCurve( this in AltCurve curve, in CurveWidgetTransform transform, float spacing = 2.0f, float infinityAlpha = 0.4f )
 	{
 		pointCache.Clear();
 

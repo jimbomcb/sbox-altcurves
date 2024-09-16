@@ -237,7 +237,7 @@ public partial class EditableAltCurve : GraphicsItem
 	}
 
 	// Note: important that this is quick, it's called often (ie for each selected item during drag)
-	private void SetRawKeyframe( int index, Keyframe keyframe )
+	private void SetRawKeyframe( int index, in Keyframe keyframe )
 	{
 		if ( index < 0 || index >= _rawCurveKeyframes.Count )
 			throw new ArgumentOutOfRangeException( nameof( index ), "Keyframe index out of range" );
@@ -377,7 +377,7 @@ public partial class EditableAltCurve : GraphicsItem
 	/// <summary>
 	/// Triggered each time the user-configurable view settings changes, this can alter things like tangent visiblity, info popup state etc.
 	/// </summary>
-	private void ViewConfigUpdated( EditorViewConfig lastViewConfig )
+	private void ViewConfigUpdated( in EditorViewConfig lastViewConfig )
 	{
 		// If we change tangent visibility mode, pass to keyframes
 		if ( lastViewConfig.TangentMode != ViewConfig.TangentMode )

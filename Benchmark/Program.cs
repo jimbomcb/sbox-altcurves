@@ -46,8 +46,7 @@ namespace AltCurves.Benchmark
 		[Params( 1, 2, 5, 25, 50, 100, 1000 )]
 		public int Keys { get; set; }
 
-		[Params( 1 )]
-		public int Samples { get; set; }
+		public int Samples { get; set; } = 1;
 
 		public CurveBenchmark()
 		{

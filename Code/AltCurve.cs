@@ -51,12 +51,18 @@ public readonly partial record struct AltCurve
 	/// </summary>
 	public ImmutableArray<(float Min, float Max)> KeyframeValueRanges { get; init; }
 
+	/// <summary>
+	/// Binary search comparer for keyframes by time
+	/// </summary>
+	private readonly IComparer<Keyframe> _keyframeTimeComparer;
+
 	public AltCurve( IEnumerable<Keyframe> keyframes, Extrapolation preInfinity, Extrapolation postInfinity )
 	{
 		// Don't allow a curve consisting of 0 keyframes, if none exist then add one default keyframe.
 		Keyframes = keyframes.Any() ? keyframes.ToImmutableArray() : ImmutableArray.Create( new Keyframe() );
 		PreInfinity = preInfinity;
 		PostInfinity = postInfinity;
+		_keyframeTimeComparer = new KeyframeTimeComparer();
 
 		// Check for out-of-order or duplicate keyframes
 		for ( int i = 0; i < Keyframes.Length - 1; i++ )
@@ -125,7 +131,7 @@ public readonly partial record struct AltCurve
 	}
 
 	/// <summary>
-	/// Return an enumerable of the sanitized keys of this AltCurve, in particular:
+	/// Return a sanitized enumerable of the input keyframes, in particular:
 	/// - No keys may share an identical time
 	/// - All keys must be in ascending time order
 	/// </summary>
@@ -182,7 +188,7 @@ public readonly partial record struct AltCurve
 			(normalizedTime, accumulatedOffset) = HandlePostInfinity( time );
 
 		// Binary search for the given time (or the next index)
-		int baseIndex = Keyframes.BinarySearch( new() { Time = normalizedTime }, new KeyframeTimeComparer() );
+		int baseIndex = Keyframes.BinarySearch( new() { Time = normalizedTime }, _keyframeTimeComparer );
 		if ( baseIndex >= 0 )
 			return Keyframes[baseIndex].Value + accumulatedOffset; // Exact match found
 
@@ -275,7 +281,8 @@ public readonly partial record struct AltCurve
 	/// <summary>
 	/// Interpolates the value between two keyframes at a given time.
 	/// </summary>
-	private static float GetInterpolatedValue( Keyframe keyframeA, Keyframe keyframeB, float time )
+	[MethodImpl( MethodImplOptions.AggressiveInlining )]
+	private static float GetInterpolatedValue( in Keyframe keyframeA, in Keyframe keyframeB, float time )
 	{
 		switch ( keyframeA.Interpolation )
 		{
@@ -293,7 +300,7 @@ public readonly partial record struct AltCurve
 				{
 					// Build the cubic Bezier curve where the first/last points are the keyframe values, and the middle points are the tangent offset positions
 					float interpTime = (time - keyframeA.Time) / (keyframeB.Time - keyframeA.Time);
-					float tangentFactor = 0.4f;
+					const float tangentFactor = 0.4f;
 					return Bezier1D( interpTime,
 						keyframeA.Value,
 						keyframeA.Value + (keyframeA.TangentOut * (keyframeB.Time - keyframeA.Time) * tangentFactor),
