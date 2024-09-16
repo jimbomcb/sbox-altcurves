@@ -78,7 +78,7 @@ public partial class EditableAltCurve : GraphicsItem
 		}
 	}
 	private EditorViewConfig _viewConfig = new();
-	
+
 	/// <summary>
 	/// Curve render color
 	/// </summary>
@@ -269,7 +269,7 @@ public partial class EditableAltCurve : GraphicsItem
 		UpdateCurveAutoTangents( ref _sanitizedKeyframes, out var updatedSanitizedIds );
 
 		// Feed back the tangents
-		foreach(var updatedId in updatedSanitizedIds)
+		foreach ( var updatedId in updatedSanitizedIds )
 		{
 			// This should always be safe, because the sanitized keyframes are a subset of the raw keyframes
 			var rawId = _sanitizedToRawIdMap[updatedId];
@@ -1080,9 +1080,15 @@ public partial class EditableAltCurve : GraphicsItem
 		PushUndoState( $"Delete {_selectedIndicies.Count} keyframe{(_selectedIndicies.Count > 1 ? "s" : "")}" );
 
 		// Remove the keyframes in reverse order so we don't invalidate the indicies
-		foreach(var idx in _selectedIndicies.OrderByDescending( x => x ) )
+		foreach ( var idx in _selectedIndicies.OrderByDescending( x => x ) )
 		{
 			_rawCurveKeyframes.RemoveAt( idx );
+		}
+
+		// If we've removed all of the existing keyframes, add a default keyframe back in at 0,0
+		if ( !_rawCurveKeyframes.Any() )
+		{
+			_rawCurveKeyframes.Add( new() );
 		}
 
 		_selectedIndicies.Clear();
@@ -1128,7 +1134,7 @@ public partial class EditableAltCurve : GraphicsItem
 		{
 			if ( _selectedIndicies.Count > 0 && !_selectedIndicies.Contains( i ) )
 				continue;
-		
+
 			if ( _rawToSanitizedIdMap.TryGetValue( i, out int sanitizedIndex ) )
 			{
 				selectedKeyframeSanitized.Add( sanitizedIndex );
@@ -1396,7 +1402,7 @@ public partial class EditableAltCurve : GraphicsItem
 		m.AddSeparator();
 		AddExtrapolationMenu( m, "Pre-Infinity", "west", _extrapolationPreInfinity, ( value ) =>
 		{
-			PushUndoState("Changed curve pre-infinity");
+			PushUndoState( "Changed curve pre-infinity" );
 			_extrapolationPreInfinity = value;
 			RebuildSanitizedCurve();
 		} );
