@@ -30,8 +30,8 @@ namespace AltCurves.Benchmark
 			public Config()
 			{
 				AddAnalyser( EnvironmentAnalyser.Default );
-				AddExporter( RPlotExporter.Default );
-				AddExporter( CsvMeasurementsExporter.Default );
+				//AddExporter( RPlotExporter.Default );
+				//AddExporter( CsvMeasurementsExporter.Default );
 
 				//WithOptions( ConfigOptions.DisableOptimizationsValidator );
 			}
@@ -43,10 +43,11 @@ namespace AltCurves.Benchmark
 		private Curve _stockCurve;
 		private AltCurve _altCurve;
 
-		[Params( 1, 2, 5, 10, 50, 100, 1000 )]
+		[Params( 1, 2, 5, 25, 50, 100, 1000 )]
 		public int Keys { get; set; }
 
-		public int Samples { get; set; } = 100;
+		[Params( 1 )]
+		public int Samples { get; set; }
 
 		public CurveBenchmark()
 		{
@@ -81,7 +82,7 @@ namespace AltCurves.Benchmark
 		}
 
 		[Benchmark( Baseline = true )]
-		public void StockCurve()
+		public void Curve()
 		{
 			foreach ( var entry in _evals )
 			{
