@@ -401,15 +401,16 @@ public partial class AltCurveTests
 	[TestMethod]
 	public void ValidValueRangeCubic()
 	{
+		// The large slopes on the in/out middle tangents will cause a big curving arc that extents well above and below the input values
 		var keyframes = new List<Keyframe>
 		{
 			new( 5.0f, 10.0f, Interpolation.Linear ),
-			new( 10.0f, 51.0f, Interpolation.Linear ),
-			new( 15.0f, 92.0f, Interpolation.Linear ),
+			new( 10.0f, 51.0f, Interpolation.Cubic, tangentIn: 315f,  tangentOut: 315f ),
+			new( 15.0f, 92.0f, Interpolation.Cubic, tangentIn: 315f, tangentOut: 315f ),
 			new( 20.0f, 167.0f, Interpolation.Linear )
 		};
 		AltCurve curve = new( keyframes, Extrapolation.Linear, Extrapolation.Linear );
-		Assert.AreEqual( curve.ValueRange.Min, 10.0f, float.Epsilon );
-		Assert.AreEqual( curve.ValueRange.Max, 167.0f, float.Epsilon );
+		Assert.IsTrue( curve.ValueRange.Min < -90.0f );
+		Assert.IsTrue( curve.ValueRange.Max > 300.0f );
 	}
 }
