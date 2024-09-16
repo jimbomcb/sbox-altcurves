@@ -413,4 +413,33 @@ public partial class AltCurveTests
 		Assert.IsTrue( curve.ValueRange.Min < -90.0f );
 		Assert.IsTrue( curve.ValueRange.Max > 300.0f );
 	}
+
+	[TestMethod]
+	public void ArgumentExceptionKeyframeOrder()
+	{
+		ImmutableArray<Keyframe> keyframesOutOfOrder = ImmutableArray.Create(
+			new Keyframe( 3.0f, 2.0f, Interpolation.Linear ),
+			new Keyframe( 0.0f, 1.0f, Interpolation.Linear ),
+			new Keyframe( 2.0f, 2.0f, Interpolation.Linear ),
+			new Keyframe( 1.0f, 1.0f, Interpolation.Linear )
+		);
+
+		Assert.ThrowsException<ArgumentException>( () => new AltCurve( keyframesOutOfOrder, Extrapolation.Linear, Extrapolation.Linear ),
+			"AltCurves must always be provided with ascending-time order keyframes" );
+	}
+
+	[TestMethod]
+	public void ArgumentExceptionKeyframeDuped()
+	{
+		ImmutableArray<Keyframe> keyframesSharedTime = ImmutableArray.Create(
+			new Keyframe( 0.0f, 1.0f, Interpolation.Linear ),
+			new Keyframe( 1.0f, 2.0f, Interpolation.Linear ),
+			new Keyframe( 2.0f, 2.0f, Interpolation.Linear ),
+			new Keyframe( 3.0f, 1.0f, Interpolation.Linear ),
+			new Keyframe( 3.0f, 6.0f, Interpolation.Linear )
+		);
+
+		Assert.ThrowsException<ArgumentException>( () => new AltCurve( keyframesSharedTime, Extrapolation.Linear, Extrapolation.Linear ),
+			"AltCurves must always be provided with unique time keyframes" );
+	}
 }
