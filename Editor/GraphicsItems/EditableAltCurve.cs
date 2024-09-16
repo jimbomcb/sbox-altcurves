@@ -1,5 +1,6 @@
 ﻿using Editor;
 using Sandbox;
+using Sandbox.Diagnostics;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -16,68 +17,36 @@ public partial class EditableAltCurve : GraphicsItem
 	public record struct CurveHoverInfo( float HoveredTime, float HoveredValue, bool InvalidKeyframe );
 
 	/// <summary>
-	/// The raw curve that we primarily work with, create keyframe widgets for etc. Could potentially be in an invalid/unsanitized state with keys sharing times.
-	/// Internal writes to this will also update SanitizedCurve
+	/// The raw curve keyframes that we are manipulating on our canvas. 
+	/// Could potentially be in an invalid/unsanitized state with keys sharing times.
 	/// </summary>
-	public AltCurve RawCurve
-	{
-		get => _rawCurveInternal;
-		set
-		{
-			// Ensure that we're constructing a valid AltCurve (at least 1 keyframe)
-			if ( value.Keyframes.IsDefaultOrEmpty )
-				value = new AltCurve();
+	private List<Keyframe> _rawCurveKeyframes;
 
-			// Generate a sanitized version of the curve, removing duplicate times and fixing ordering
-			var sanitizedCurveKeyframes = SanitizeKeyframes( value.Keyframes ).ToList();
+	/// <summary>
+	/// The sanitized processed version of _rawCurveKeyframes, feeds into SanitizedCurve and the resulting JSON
+	/// </summary>
+	private List<Keyframe> _sanitizedKeyframes;
 
-			// Build a map from the raw keyframe index to the sanitized keyframe index
-			_rawToSanitizedIdMap = sanitizedCurveKeyframes.Select( ( kf, index ) => new { kf, index } ).ToDictionary( x => value.Keyframes.IndexOf( x.kf ), x => x.index );
-			_sanitizedToRawIdMap = _rawToSanitizedIdMap.ToDictionary( x => x.Value, x => x.Key );
+	/// <summary>
+	/// Current curve pre-infinity extrapolation (for both raw/sanitized)
+	/// </summary>
+	private Extrapolation _extrapolationPreInfinity;
 
-			// Correct any auto-tangents that might be invalidated and apply 
-			UpdateCurveAutoTangents( ref sanitizedCurveKeyframes, out var updatedSanitizedIds );
-
-			_sanitizedCurve = value.WithKeyframes( sanitizedCurveKeyframes );
-
-			// Copy the keyframe data from the sanitized curve to the raw curve
-			// Each sanitized keyframe is guaranteed to have a corresponding raw keyframe.
-			var rawKeyframes = value.Keyframes.ToList();
-			for ( int sanitizedIdx = 0; sanitizedIdx < sanitizedCurveKeyframes.Count; sanitizedIdx++ )
-			{
-				var rawKeyframeId = _sanitizedToRawIdMap[sanitizedIdx];
-				rawKeyframes[rawKeyframeId] = sanitizedCurveKeyframes[sanitizedIdx];
-
-				// And update the keyframe handles 
-				if ( rawKeyframeId < _keyframes.Count )
-				{
-					_keyframes[rawKeyframeId].VisibleHandle.Keyframe = sanitizedCurveKeyframes[sanitizedIdx];
-					_keyframes[rawKeyframeId].DragHandle.Keyframe = sanitizedCurveKeyframes[sanitizedIdx];
-				}
-			}
-			_rawCurveInternal = value.WithKeyframes( rawKeyframes );
-
-			Update();
-		}
-	}
-	private AltCurve _rawCurveInternal; // Don't write to this directly internally shithead
+	/// <summary>
+	/// Current curve post-infinity extrapolation (for both raw/sanitized)
+	/// </summary>
+	private Extrapolation _extrapolationPostInfinity;
 
 	/// <summary>
 	/// The "Sanitized" curve, which is the raw curve after being sanitized to remove duplicate times, fix ordering etc.
-	/// Writing back to this will override any local RawCurve changes, realistically this only happens if the asset
-	/// is reloaded or we have > 1 editors accessing the same curve.
+	/// Bound to the underlying SerializedProperty that we're representing, writes to this represent external
+	/// curve modification (JSON reload or external editing)
 	/// </summary>
 	public AltCurve SanitizedCurve
 	{
 		get => _sanitizedCurve;
-		set
-		{
-			RawCurve = value;
-			_selectedIndicies.Clear();
-			SelectionState = new();
-			SelectedInterpolation = null;
-			RebuildKeyframeWidgets();
-		}
+		// The newly incoming sanitized curve from the binding will stomp any local changes.
+		set => SetRawCurve( value.Keyframes, value.PreInfinity, value.PostInfinity );
 	}
 	private AltCurve _sanitizedCurve;
 
@@ -89,7 +58,7 @@ public partial class EditableAltCurve : GraphicsItem
 		set
 		{
 			_curveTransform = value;
-			foreach ( var keyframe in _keyframes ) keyframe.SetTransform( value );
+			foreach ( var keyframe in _keyWidgets ) keyframe.SetTransform( value );
 			Update();
 		}
 	}
@@ -215,23 +184,25 @@ public partial class EditableAltCurve : GraphicsItem
 	/// </summary>
 	public bool HasSelectedKeyframe => _selectedIndicies.Any();
 
-	private Stack<(string, AltCurve)> _curveHistory = new(); // In lieu of any sensible undo/redo system in S&box, let's just roll our own. I miss the UE transaction system.
-	private Stack<(string, AltCurve)> _curveRedoHistory = new(); // State of the curve gets pushed on undo, popped when redoing
-	private List<KeyPair> _keyframes = new(); // The keyframe list is created from the associated curve keyframes
+	private record struct HistoryEntry( string Operation, List<Keyframe> Keyframes, Extrapolation PreInfinity, Extrapolation PostInfinity );
+	private readonly Stack<HistoryEntry> _curveHistory = new(); // In lieu of any sensible undo/redo system in S&box, let's just roll our own. I miss the UE transaction system.
+	private readonly Stack<HistoryEntry> _curveRedoHistory = new(); // State of the curve gets pushed on undo, popped when redoing
+
+	private readonly List<KeyPair> _keyWidgets = new(); // The keyframe list is created from the associated curve keyframes
 	private Vector2 _lastMousePos;
 	private bool _draggingSelect = false;
 	private Vector2 _dragStartPos;
 	private KeyPair? _hoveredKeyframe = null;
 	private int _draggingKeyframeIndex = -1;
 	private readonly ScrollingGrid _gridBackground;
-	private HashSet<int> _selectedIndicies = new(); // selected _keyframe indicies
+	private HashSet<int> _selectedIndicies = new(); // Selected raw keyframe indicies
 	private Dictionary<int, int> _rawToSanitizedIdMap = new(); // Map indicies between the raw and sanitized keyframes (if they were not removed)
 	private Dictionary<int, int> _sanitizedToRawIdMap = new(); // Map indicies between the sanitized keyframe and the raw id (each sanitized keyframe always has a raw keyframe)
-	private IEnumerable<Keyframe> _selectedKeyframes => _selectedIndicies.Select( x => _keyframes[x].VisibleHandle.Keyframe );
+
+	private IEnumerable<Keyframe> SelectedKeyframes => _selectedIndicies.Select( x => _rawCurveKeyframes[x] );
 
 	public EditableAltCurve( AltCurve curve, CurveWidgetTransform curveTransform, ScrollingGrid gridBackground ) : base( null )
 	{
-		RawCurve = curve;
 		_curveTransform = curveTransform;
 		_gridBackground = gridBackground;
 
@@ -239,7 +210,77 @@ public partial class EditableAltCurve : GraphicsItem
 		Clip = true;
 		ClipChildren = true;
 
+		SetRawCurve( curve.Keyframes, curve.PreInfinity, curve.PostInfinity );
+	}
+
+	/// <summary>
+	/// A entirely brand new curve has been provided (probably from external editing)
+	/// </summary>
+	private void SetRawCurve( IEnumerable<Keyframe> keyframes, Extrapolation preInfinity, Extrapolation postInfinity )
+	{
+		// Clear selection state for any new curves coming in given rebuilding
+		_selectedIndicies.Clear();
+		SelectionState = new();
+		SelectedInterpolation = null;
+
+		_rawCurveKeyframes = keyframes.ToList();
+
+		_extrapolationPreInfinity = preInfinity;
+		_extrapolationPostInfinity = postInfinity;
+
+		// Full rebuild of keyframes for our new curve data
 		RebuildKeyframeWidgets();
+
+		RebuildSanitizedCurve();
+
+		Update();
+	}
+
+	// Note: important that this is quick, it's called often (ie for each selected item during drag)
+	private void SetRawKeyframe( int index, Keyframe keyframe )
+	{
+		if ( index < 0 || index >= _rawCurveKeyframes.Count )
+			throw new ArgumentOutOfRangeException( nameof( index ), "Keyframe index out of range" );
+
+		_rawCurveKeyframes[index] = keyframe;
+		RebuildSanitizedCurve();
+
+		// Update the widget handles
+		_keyWidgets[index].VisibleHandle.Keyframe = keyframe;
+		_keyWidgets[index].DragHandle.Keyframe = keyframe;
+	}
+
+	private void RebuildSanitizedCurve()
+	{
+		Assert.True( _keyWidgets.Count == _rawCurveKeyframes.Count, "_keyWidgets count mismatch" );
+
+		_sanitizedKeyframes = SanitizeKeyframes( _rawCurveKeyframes ).ToList();
+
+		// Update the automatic tangents with this new sanitized curve data, and feed it back to the raw keyframe data.
+		// Generating automatic tangents against the raw potentially invalid curve data will result in incorrect tangents.
+
+		// Build a map for translating between the raw and sanitized keyframe indicies 
+		_rawToSanitizedIdMap = _sanitizedKeyframes
+			.Select( ( kf, index ) => new { kf, index } )
+			.ToDictionary( x => _rawCurveKeyframes.IndexOf( x.kf ), x => x.index );
+		_sanitizedToRawIdMap = _rawToSanitizedIdMap.ToDictionary( x => x.Value, x => x.Key );
+
+		// Perform the tangent updates
+		UpdateCurveAutoTangents( ref _sanitizedKeyframes, out var updatedSanitizedIds );
+
+		// Feed back the tangents
+		foreach(var updatedId in updatedSanitizedIds)
+		{
+			// This should always be safe, because the sanitized keyframes are a subset of the raw keyframes
+			var rawId = _sanitizedToRawIdMap[updatedId];
+
+			// Intentionally directly setting rather than piping through setters
+			_rawCurveKeyframes[rawId] = _sanitizedKeyframes[updatedId];
+			_keyWidgets[rawId].VisibleHandle.Keyframe = _sanitizedKeyframes[updatedId];
+		}
+
+		_sanitizedCurve = new( _sanitizedKeyframes, _extrapolationPreInfinity, _extrapolationPostInfinity );
+		Update();
 	}
 
 	/// <summary>
@@ -249,17 +290,17 @@ public partial class EditableAltCurve : GraphicsItem
 	{
 		_draggingKeyframeIndex = -1;
 
-		foreach ( var keyframe in _keyframes )
+		foreach ( var keyframe in _keyWidgets )
 		{
 			keyframe.Destroy();
 		}
-		_keyframes.Clear();
+		_keyWidgets.Clear();
 
 		// Create the keyframe widgets
 		var previousTimes = new HashSet<float>();
-		for ( int i = 0; i < RawCurve.Keyframes.Length; i++ )
+		for ( int i = 0; i < _rawCurveKeyframes.Count; i++ )
 		{
-			var dragWidget = new DragHandle( i, _curveTransform, RawCurve.Keyframes[i], this )
+			var dragWidget = new DragHandle( i, _curveTransform, _rawCurveKeyframes[i], this )
 			{
 				ZIndex = 2
 			};
@@ -268,11 +309,11 @@ public partial class EditableAltCurve : GraphicsItem
 			dragWidget.OnDragging += OnHandleDrag;
 			dragWidget.OnDragComplete += OnHandleDragComplete;
 
-			var visibleWidget = new KeyVisible( i, RawCurve.Keyframes.Length, _curveTransform, RawCurve.Keyframes[i], ViewConfig.TangentMode, this )
+			var visibleWidget = new KeyVisible( i, _rawCurveKeyframes.Count, _curveTransform, _rawCurveKeyframes[i], ViewConfig.TangentMode, this )
 			{
 				ZIndex = 3,
 				UserSelected = _selectedIndicies.Contains( i ),
-				InvalidKeyframe = previousTimes.Contains( RawCurve.Keyframes[i].Time )
+				InvalidKeyframe = previousTimes.Contains( _rawCurveKeyframes[i].Time )
 			};
 
 			// Tangent controls
@@ -294,9 +335,7 @@ public partial class EditableAltCurve : GraphicsItem
 				}
 
 				// Push the updated keyframe data into the raw curve
-				var currentKeyframes = CurrentWidgetKeyframes().ToList();
-				currentKeyframes[visibleWidget.Index] = visibleWidget.Keyframe;
-				RawCurve = RawCurve.WithKeyframes( currentKeyframes );
+				SetRawKeyframe( visibleWidget.Index, visibleWidget.Keyframe );
 
 			};
 
@@ -318,18 +357,16 @@ public partial class EditableAltCurve : GraphicsItem
 				}
 
 				// Push the updated keyframe data into the raw curve
-				var currentKeyframes = CurrentWidgetKeyframes().ToList();
-				currentKeyframes[visibleWidget.Index] = visibleWidget.Keyframe;
-				RawCurve = RawCurve.WithKeyframes( currentKeyframes );
+				SetRawKeyframe( visibleWidget.Index, visibleWidget.Keyframe );
 			};
 
-			_keyframes.Add( new()
+			_keyWidgets.Add( new()
 			{
 				DragHandle = dragWidget,
 				VisibleHandle = visibleWidget
 			} );
 
-			previousTimes.Add( RawCurve.Keyframes[i].Time );
+			previousTimes.Add( _rawCurveKeyframes[i].Time );
 		}
 
 		BuildSelectionState(); // Update the state of selected keyframes after rebuild
@@ -345,7 +382,7 @@ public partial class EditableAltCurve : GraphicsItem
 		// If we change tangent visibility mode, pass to keyframes
 		if ( lastViewConfig.TangentMode != ViewConfig.TangentMode )
 		{
-			foreach ( var pair in _keyframes )
+			foreach ( var pair in _keyWidgets )
 			{
 				pair.VisibleHandle.TangentMode = ViewConfig.TangentMode;
 			}
@@ -558,7 +595,7 @@ public partial class EditableAltCurve : GraphicsItem
 
 		_draggingKeyframeIndex = dragIndex;
 
-		var draggingPair = _keyframes[dragIndex];
+		var draggingPair = _keyWidgets[dragIndex];
 
 		var unsnappedTime = draggingPair.DragHandle.Keyframe.Time;
 		var unsnappedValue = draggingPair.DragHandle.Keyframe.Value;
@@ -582,7 +619,7 @@ public partial class EditableAltCurve : GraphicsItem
 
 		// Snap the main dragged widget
 		var (snappedTime, snappedValue) = SnapTimeValueToGrid( unsnappedTime, unsnappedValue );
-		draggingPair.VisibleHandle.Keyframe = draggingPair.VisibleHandle.Keyframe with { Time = snappedTime, Value = snappedValue };
+		SetRawKeyframe( dragIndex, _rawCurveKeyframes[dragIndex] with { Time = snappedTime, Value = snappedValue } );
 
 		// And drag every other selected widget by the same amount that the dragged keyframe is moving (then snapped to grid)
 		foreach ( var idx in _selectedIndicies )
@@ -592,19 +629,17 @@ public partial class EditableAltCurve : GraphicsItem
 
 			// Noteworthy: During this drag we are only updating the visible widget of selected-but-not-dragged keyframes.
 			// When the drag completes we will run a pass updating all drag handles to the correct widget positions
-			var selectedWidgets = _keyframes[idx];
+			var selectedWidgets = _keyWidgets[idx];
 			var selectedBaseKeyframe = selectedWidgets.DragHandle.Keyframe;
 			var (snappedOtherTime, snappedOtherValue) = SnapTimeValueToGrid( selectedBaseKeyframe.Time + timeChange, selectedBaseKeyframe.Value + valueChange );
-			selectedWidgets.VisibleHandle.Keyframe = selectedWidgets.VisibleHandle.Keyframe with { Time = snappedOtherTime, Value = snappedOtherValue };
-		}
 
-		// Update the temporary curve representation, which will be locked in once dragging finishes (OnHandleDragComplete)
-		RawCurve = RawCurve.WithKeyframes( CurrentWidgetKeyframes() );
+			SetRawKeyframe( idx, _rawCurveKeyframes[idx] with { Time = snappedOtherTime, Value = snappedOtherValue } );
+		}
 
 		// Update the validity state for each relevant handle, flagging as invalid if they're going to be culled (because they share a time).
 		// The first instance of each time is taken, so we know if we see a repeat time that the keyframe will be lost
 		var seenTimes = new HashSet<float>();
-		foreach ( var pair in _keyframes )
+		foreach ( var pair in _keyWidgets )
 		{
 			pair.VisibleHandle.InvalidKeyframe = seenTimes.Contains( pair.VisibleHandle.Keyframe.Time );
 			seenTimes.Add( pair.VisibleHandle.Keyframe.Time );
@@ -641,11 +676,7 @@ public partial class EditableAltCurve : GraphicsItem
 				var nextKeyframe = alteredKeyframes[i + 1];
 				var slope = (nextKeyframe.Value - prevKeyframe.Value) / (nextKeyframe.Time - prevKeyframe.Time);
 
-				// Calculate the tangents based on the slope
-				var tangentIn = slope;
-				var tangentOut = slope;
-
-				alteredKeyframes[i] = keyframe with { TangentIn = tangentIn, TangentOut = tangentOut };
+				alteredKeyframes[i] = keyframe with { TangentIn = slope, TangentOut = slope };
 				alteredKeyframeIds.Add( i );
 			}
 		}
@@ -657,13 +688,13 @@ public partial class EditableAltCurve : GraphicsItem
 	private void OnHandleDragComplete( int dragIndex )
 	{
 		// Snap all the other drag handles to their correct positions
-		_keyframes[dragIndex].DragHandle.Keyframe = _keyframes[dragIndex].VisibleHandle.Keyframe;
+		_keyWidgets[dragIndex].DragHandle.Keyframe = _keyWidgets[dragIndex].VisibleHandle.Keyframe;
 		foreach ( var idx in _selectedIndicies )
 		{
 			if ( idx == dragIndex )
 				continue;
 
-			_keyframes[idx].DragHandle.Keyframe = _keyframes[idx].VisibleHandle.Keyframe;
+			_keyWidgets[idx].DragHandle.Keyframe = _keyWidgets[idx].VisibleHandle.Keyframe;
 		}
 
 		// Update selection state with the drag position
@@ -722,9 +753,9 @@ public partial class EditableAltCurve : GraphicsItem
 		var curveValueRangeMin = _curveTransform.WidgetToCurveY( searchMax.y );
 
 		var selectedIndicies = new HashSet<int>();
-		for ( int i = 0; i < _keyframes.Count; i++ )
+		for ( int i = 0; i < _rawCurveKeyframes.Count; i++ )
 		{
-			var keyframe = _keyframes[i].VisibleHandle.Keyframe;
+			var keyframe = _rawCurveKeyframes[i];
 			if ( keyframe.Time >= curveTimeRangeMin && keyframe.Time <= curveTimeRangeMax &&
 				 keyframe.Value >= curveValueRangeMin && keyframe.Value <= curveValueRangeMax )
 			{
@@ -773,7 +804,8 @@ public partial class EditableAltCurve : GraphicsItem
 			_selectedIndicies = newSelection;
 		}
 
-		foreach ( var keyframe in _keyframes )
+		// Update visible handles with selection state
+		foreach ( var keyframe in _keyWidgets )
 		{
 			keyframe.VisibleHandle.UserSelected = _selectedIndicies.Contains( keyframe.Index );
 		}
@@ -792,8 +824,8 @@ public partial class EditableAltCurve : GraphicsItem
 		SelectionState = new()
 		{
 			SelectedKeyframes = _selectedIndicies.Count,
-			SelectedTime = _selectedIndicies.Count == 1 ? _keyframes[_selectedIndicies.First()].VisibleHandle.Keyframe.Time : 0.0f,
-			SelectedValue = _selectedIndicies.Count == 1 ? _keyframes[_selectedIndicies.First()].VisibleHandle.Keyframe.Value : 0.0f
+			SelectedTime = _selectedIndicies.Count == 1 ? _rawCurveKeyframes[_selectedIndicies.First()].Time : 0.0f,
+			SelectedValue = _selectedIndicies.Count == 1 ? _rawCurveKeyframes[_selectedIndicies.First()].Value : 0.0f
 		};
 	}
 
@@ -804,7 +836,7 @@ public partial class EditableAltCurve : GraphicsItem
 
 		// Keyframe hover detection, simple distance check to the widget-space keyframe positions
 		HoveringKeyframe = false;
-		foreach ( var keyPair in _keyframes )
+		foreach ( var keyPair in _keyWidgets )
 		{
 			var keyframeWidgetPos = _curveTransform.CurveToWidgetPosition( new( keyPair.DragHandle.Keyframe.Time, keyPair.DragHandle.Keyframe.Value ) );
 			if ( keyframeWidgetPos.Distance( widgetRelativeMouse ) < pixelHitRange )
@@ -819,7 +851,7 @@ public partial class EditableAltCurve : GraphicsItem
 		HoveringTangent = false;
 		if ( !HoveringKeyframe )
 		{
-			foreach ( var keyPair in _keyframes )
+			foreach ( var keyPair in _keyWidgets )
 			{
 				if ( keyPair.VisibleHandle?.TangentIn.Hovered ?? false )
 				{
@@ -844,8 +876,8 @@ public partial class EditableAltCurve : GraphicsItem
 		// Convert these values to widget-space coordinates
 		// The line distance between the mouse and the line segment from pixelMin/pixelMax is compared against pixelHitRange.
 		// Hit test against the sanitized rendered curve, not the potentially invalid raw curve.
-		var minValue = SanitizedCurve.Evaluate( _curveTransform.WidgetToCurveX( widgetRelativeMouse.x - pixelHitRange ) );
-		var maxValue = SanitizedCurve.Evaluate( _curveTransform.WidgetToCurveX( widgetRelativeMouse.x + pixelHitRange ) );
+		var minValue = _sanitizedCurve.Evaluate( _curveTransform.WidgetToCurveX( widgetRelativeMouse.x - pixelHitRange ) );
+		var maxValue = _sanitizedCurve.Evaluate( _curveTransform.WidgetToCurveX( widgetRelativeMouse.x + pixelHitRange ) );
 
 		var pixelMin = _curveTransform.CurveToWidgetY( minValue );
 		var pixelMax = _curveTransform.CurveToWidgetY( maxValue );
@@ -878,32 +910,31 @@ public partial class EditableAltCurve : GraphicsItem
 		var newKeyframeTime = _curveTransform.WidgetToCurveX( cursorPos.x );
 
 		// Find the source keyframe we want to copy
-		var keyframes = CurrentWidgetKeyframes();
 		var sourceKeyframe = new Keyframe();
-
 		var (minTime, maxTime) = _sanitizedCurve.TimeRange;
 		if ( newKeyframeTime >= minTime && newKeyframeTime <= maxTime )
 		{
 			// We're within the time range, copy the prior keyframe
-			var priorKeyframes = keyframes.Where( x => x.Time <= newKeyframeTime );
+			var priorKeyframes = _rawCurveKeyframes.Where( x => x.Time <= newKeyframeTime );
 			sourceKeyframe = priorKeyframes.Any() ? priorKeyframes.MaxBy( x => x.Time ) : new Keyframe();
 		}
-		else if ( newKeyframeTime < minTime && keyframes.Any() )
+		else if ( newKeyframeTime < minTime && _rawCurveKeyframes.Any() )
 		{
 			// We're before the curve, first keyframe
-			sourceKeyframe = keyframes.MinBy( x => x.Time );
+			sourceKeyframe = _rawCurveKeyframes.MinBy( x => x.Time );
 		}
-		else if ( newKeyframeTime > maxTime && keyframes.Any() )
+		else if ( newKeyframeTime > maxTime && _rawCurveKeyframes.Any() )
 		{
 			// We're after the curve, last keyframe
-			sourceKeyframe = keyframes.MaxBy( x => x.Time );
+			sourceKeyframe = _rawCurveKeyframes.MaxBy( x => x.Time );
 		}
 
-		RawCurve = RawCurve.WithKeyframes( keyframes.Append( sourceKeyframe with { Time = newKeyframeTime, Value = SanitizedCurve.Evaluate( newKeyframeTime ) } ) );
-
+		// Just stick it on to the end of the list and rebuild widgets
+		_rawCurveKeyframes.Add( sourceKeyframe with { Time = newKeyframeTime, Value = _sanitizedCurve.Evaluate( newKeyframeTime ) } );
 		RebuildKeyframeWidgets();
+		RebuildSanitizedCurve();
 
-		var newSelectSet = new HashSet<int>() { RawCurve.Keyframes.Length - 1 };
+		var newSelectSet = new HashSet<int>() { _rawCurveKeyframes.Count - 1 };
 		UpdateSelection( ref newSelectSet, false, false, false );
 	}
 
@@ -915,7 +946,7 @@ public partial class EditableAltCurve : GraphicsItem
 		// Show the snapped value when we're dragging keyframes
 		if ( _draggingKeyframeIndex >= 0 )
 		{
-			var handle = _keyframes[_draggingKeyframeIndex].VisibleHandle;
+			var handle = _keyWidgets[_draggingKeyframeIndex].VisibleHandle;
 			return new( handle.Keyframe.Time, handle.Keyframe.Value, handle.InvalidKeyframe );
 		}
 
@@ -928,7 +959,7 @@ public partial class EditableAltCurve : GraphicsItem
 
 		// Evaluate against the rendered sanitized curve, not the raw underlying curve.
 		var time = _curveTransform.WidgetToCurveX( cursorLocalPos.x );
-		return new( time, SanitizedCurve.Evaluate( time ), false );
+		return new( time, _sanitizedCurve.Evaluate( time ), false );
 	}
 
 	/// <summary>
@@ -1030,7 +1061,7 @@ public partial class EditableAltCurve : GraphicsItem
 	internal void SelectAll()
 	{
 		var allIndicies = new HashSet<int>();
-		for ( int i = 0; i < _keyframes.Count; i++ )
+		for ( int i = 0; i < _keyWidgets.Count; i++ )
 		{
 			allIndicies.Add( i );
 		}
@@ -1048,23 +1079,15 @@ public partial class EditableAltCurve : GraphicsItem
 
 		PushUndoState( $"Delete {_selectedIndicies.Count} keyframe{(_selectedIndicies.Count > 1 ? "s" : "")}" );
 
-		// Note that we're building the modified keyframe list based on the keyframe handles, not the curve keyframes. 
-		RawCurve = RawCurve.WithKeyframes( CurrentWidgetKeyframes( exceptSelection: true ) );
+		// Remove the keyframes in reverse order so we don't invalidate the indicies
+		foreach(var idx in _selectedIndicies.OrderByDescending( x => x ) )
+		{
+			_rawCurveKeyframes.RemoveAt( idx );
+		}
+
 		_selectedIndicies.Clear();
-
-		RebuildKeyframeWidgets();
-	}
-
-	/// <summary>
-	/// Get the set of keyframes that the current draggable handles are representing, created from the input curve keyframes on load and then any subsequent drags.
-	/// Note that these keyframes might not be sanitized, meaning that might not all be in in ascending time order and may have duplicate times.
-	/// This is intentional and it represents a curve being actively modified, bad keyframes are not lost until explicit saving if the user didn't fix it before then.
-	/// </summary>
-	private IEnumerable<Keyframe> CurrentWidgetKeyframes( bool exceptSelection = false )
-	{
-		var keyPairs = _keyframes.AsEnumerable();
-		if ( exceptSelection ) keyPairs = keyPairs.Where( x => !_selectedIndicies.Contains( x.Index ) );
-		return keyPairs.Select( x => x.VisibleHandle.Keyframe );
+		RebuildKeyframeWidgets(); // Full rebuild after direct raw curve keyframe removal
+		RebuildSanitizedCurve();
 	}
 
 	/// <summary>
@@ -1073,7 +1096,7 @@ public partial class EditableAltCurve : GraphicsItem
 	internal CoordinateRange2D? GetCoordinateRangeForSelection()
 	{
 		// Nothing selected, focus on the entire curve.
-		var selectedKeyframes = _selectedIndicies.Count == 0 ? SanitizedCurve.Keyframes : _selectedKeyframes;
+		var selectedKeyframes = _selectedIndicies.Count == 0 ? _sanitizedKeyframes : SelectedKeyframes;
 		if ( !selectedKeyframes.Any() )
 		{
 			return new( -1.0f, 1.0f, -1.0f, 1.0f ); // No selection and no keyframes to focus on.
@@ -1101,11 +1124,11 @@ public partial class EditableAltCurve : GraphicsItem
 		var selectedKeyframeSanitized = new List<int>();
 		var invalidRawIndicies = new List<int>();
 
-		for ( int i = 0; i < _keyframes.Count; i++ )
+		for ( int i = 0; i < _keyWidgets.Count; i++ )
 		{
 			if ( _selectedIndicies.Count > 0 && !_selectedIndicies.Contains( i ) )
 				continue;
-
+		
 			if ( _rawToSanitizedIdMap.TryGetValue( i, out int sanitizedIndex ) )
 			{
 				selectedKeyframeSanitized.Add( sanitizedIndex );
@@ -1127,18 +1150,18 @@ public partial class EditableAltCurve : GraphicsItem
 			var lowestIdx = selectedKeyframeSanitized.Min();
 			var highestIdx = selectedKeyframeSanitized.Max();
 
-			minTime = SanitizedCurve.Keyframes[lowestIdx].Time;
-			maxTime = SanitizedCurve.Keyframes[highestIdx].Time;
+			minTime = _sanitizedCurve.Keyframes[lowestIdx].Time;
+			maxTime = _sanitizedCurve.Keyframes[highestIdx].Time;
 
 			// If we only have one single selected keyframe then we don't care about the curve range
 			if ( selectedKeyframeSanitized.Count == 1 )
 			{
-				minValue = SanitizedCurve.Keyframes[lowestIdx].Value;
-				maxValue = SanitizedCurve.Keyframes[highestIdx].Value;
+				minValue = _sanitizedCurve.Keyframes[lowestIdx].Value;
+				maxValue = _sanitizedCurve.Keyframes[highestIdx].Value;
 			}
 			else
 			{
-				var valueRange = SanitizedCurve.KeyframeValueRanges.Skip( lowestIdx ).Take( highestIdx - lowestIdx + 1 );
+				var valueRange = _sanitizedCurve.KeyframeValueRanges.Skip( lowestIdx ).Take( highestIdx - lowestIdx + 1 );
 				minValue = valueRange.Min( x => x.Min );
 				maxValue = valueRange.Max( x => x.Max );
 			}
@@ -1148,7 +1171,7 @@ public partial class EditableAltCurve : GraphicsItem
 		if ( invalidRawIndicies.Count > 0 )
 		{
 			// Just focus on all selected directly, ignoring any curve evaluation
-			var allInvalidKeyframes = invalidRawIndicies.Select( x => _keyframes[x].VisibleHandle.Keyframe );
+			var allInvalidKeyframes = invalidRawIndicies.Select( x => _rawCurveKeyframes[x] );
 			minTime = Math.Min( minTime, allInvalidKeyframes.Min( x => x.Time ) );
 			maxTime = Math.Max( maxTime, allInvalidKeyframes.Max( x => x.Time ) );
 			minValue = Math.Min( minValue, allInvalidKeyframes.Min( x => x.Value ) );
@@ -1166,13 +1189,14 @@ public partial class EditableAltCurve : GraphicsItem
 		if ( _selectedIndicies.Count == 0 )
 			return;
 
-		var updatedKeyframes = new List<AltCurve.Keyframe>( RawCurve.Keyframes );
+		// Unlike other methods we intentionally don't push an undo state, this is often
+		// called very frequently and we push the undo state when they start dragging operations
+
 		foreach ( var idx in _selectedIndicies )
 		{
-			var keyframe = updatedKeyframes[idx];
-			updatedKeyframes[idx] = keyframe with { Time = keyframe.Time + time, Value = keyframe.Value + value };
+			var keyframe = _rawCurveKeyframes[idx];
+			SetRawKeyframe( idx, keyframe with { Time = keyframe.Time + time, Value = keyframe.Value + value } );
 		}
-		RawCurve = RawCurve.WithKeyframes( updatedKeyframes );
 	}
 
 	internal void SetSelectionTime( float newTime )
@@ -1180,14 +1204,11 @@ public partial class EditableAltCurve : GraphicsItem
 		if ( _selectedIndicies.Count == 0 )
 			return;
 
-		var updatedKeyframes = new List<AltCurve.Keyframe>( RawCurve.Keyframes );
+		PushUndoState( "Update keyframe time" );
 		foreach ( var idx in _selectedIndicies )
 		{
-			updatedKeyframes[idx] = updatedKeyframes[idx] with { Time = newTime };
+			SetRawKeyframe( idx, _rawCurveKeyframes[idx] with { Time = newTime } );
 		}
-
-		PushUndoState( "Update keyframe time" );
-		RawCurve = RawCurve.WithKeyframes( updatedKeyframes );
 	}
 
 	internal void SetSelectionValue( float newValue )
@@ -1195,14 +1216,11 @@ public partial class EditableAltCurve : GraphicsItem
 		if ( _selectedIndicies.Count == 0 )
 			return;
 
-		var updatedKeyframes = new List<AltCurve.Keyframe>( RawCurve.Keyframes );
+		PushUndoState( "Update keyframe value" );
 		foreach ( var idx in _selectedIndicies )
 		{
-			updatedKeyframes[idx] = updatedKeyframes[idx] with { Value = newValue };
+			SetRawKeyframe( idx, _rawCurveKeyframes[idx] with { Value = newValue } );
 		}
-
-		PushUndoState( "Update keyframe value" );
-		RawCurve = RawCurve.WithKeyframes( updatedKeyframes );
 	}
 
 	public void SetSelectionInterpolation( InterpTangentMode newMode )
@@ -1210,19 +1228,16 @@ public partial class EditableAltCurve : GraphicsItem
 		if ( _selectedIndicies.Count == 0 )
 			return;
 
-		var updatedKeyframes = new List<AltCurve.Keyframe>( RawCurve.Keyframes );
+		PushUndoState( "Update keyframe interpolation" );
+
 		foreach ( var idx in _selectedIndicies )
 		{
-			var keyframe = updatedKeyframes[idx] with
+			SetRawKeyframe( idx, _rawCurveKeyframes[idx] with
 			{
 				Interpolation = newMode.Interp,
 				TangentMode = newMode.Tangent
-			};
-			updatedKeyframes[idx] = keyframe;
+			} );
 		}
-
-		PushUndoState( "Update keyframe interpolation" );
-		RawCurve = RawCurve.WithKeyframes( updatedKeyframes );
 
 		SelectedInterpolation = newMode; // We know all selection must be this interp value now
 	}
@@ -1234,11 +1249,11 @@ public partial class EditableAltCurve : GraphicsItem
 	private void CalculateSelectedInterpolation()
 	{
 		SelectedInterpolation = null;
-		if ( _selectedKeyframes.Any() )
+		if ( SelectedKeyframes.Any() )
 		{
-			var firstInterp = _selectedKeyframes.First();
+			var firstInterp = SelectedKeyframes.First();
 
-			if ( _selectedKeyframes.All( x => x.Interpolation == firstInterp.Interpolation && x.TangentMode == firstInterp.TangentMode ) )
+			if ( SelectedKeyframes.All( x => x.Interpolation == firstInterp.Interpolation && x.TangentMode == firstInterp.TangentMode ) )
 				SelectedInterpolation = new( firstInterp.Interpolation, firstInterp.TangentMode );
 		}
 	}
@@ -1251,20 +1266,18 @@ public partial class EditableAltCurve : GraphicsItem
 		if ( _selectedIndicies.Count == 0 )
 			return;
 
-		var updatedKeyframes = new List<AltCurve.Keyframe>( RawCurve.Keyframes );
+		PushUndoState( "Flatten keyframes" );
 		foreach ( var idx in _selectedIndicies )
 		{
-			var keyframe = updatedKeyframes[idx] with { TangentIn = 0.0f, TangentOut = 0.0f };
+			var keyframe = _rawCurveKeyframes[idx] with { TangentIn = 0.0f, TangentOut = 0.0f };
 
 			// Also disable auto tangent mode for any cubic keyframes
 			if ( keyframe.Interpolation == Interpolation.Cubic && keyframe.TangentMode == TangentMode.Automatic )
 				keyframe = keyframe with { TangentMode = TangentMode.Mirrored };
 
-			updatedKeyframes[idx] = keyframe;
+			SetRawKeyframe( idx, keyframe );
 		}
 
-		PushUndoState( "Flatten keyframes" );
-		RawCurve = RawCurve.WithKeyframes( updatedKeyframes );
 		CalculateSelectedInterpolation(); // We might have changed handle interpolation, so refresh the state
 	}
 
@@ -1273,7 +1286,8 @@ public partial class EditableAltCurve : GraphicsItem
 	/// </summary>
 	public void PushUndoState( string operation )
 	{
-		_curveHistory.Push( (operation, RawCurve) );
+		// Push a COPY of the keyframe onto the stack
+		_curveHistory.Push( new( operation, _rawCurveKeyframes.ToList(), _extrapolationPreInfinity, _extrapolationPostInfinity ) );
 		_curveRedoHistory.Clear(); // A new undo-worthy change flushes the redo stack
 	}
 
@@ -1293,10 +1307,10 @@ public partial class EditableAltCurve : GraphicsItem
 		}
 
 		var undo = _curveHistory.Pop();
-		_curveRedoHistory.Push( (undo.Item1, RawCurve) );
-		OnUndoRedo.Invoke( false, undo.Item1 );
-		RawCurve = undo.Item2;
-		RebuildKeyframeWidgets();
+		_curveRedoHistory.Push( new( undo.Operation, _rawCurveKeyframes, _extrapolationPreInfinity, _extrapolationPostInfinity ) );
+		OnUndoRedo.Invoke( false, undo.Operation );
+
+		SetRawCurve( undo.Keyframes, undo.PreInfinity, undo.PostInfinity );
 	}
 
 	/// <summary>
@@ -1315,10 +1329,10 @@ public partial class EditableAltCurve : GraphicsItem
 		}
 
 		var undo = _curveRedoHistory.Pop();
-		_curveHistory.Push( (undo.Item1, RawCurve) );
-		OnUndoRedo.Invoke( true, undo.Item1 );
-		RawCurve = undo.Item2;
-		RebuildKeyframeWidgets();
+		_curveHistory.Push( new( undo.Operation, _rawCurveKeyframes, _extrapolationPreInfinity, _extrapolationPostInfinity ) );
+		OnUndoRedo.Invoke( true, undo.Operation );
+
+		SetRawCurve( undo.Keyframes, undo.PreInfinity, undo.PostInfinity );
 	}
 
 	private void OpenContextMenu()
@@ -1341,7 +1355,7 @@ public partial class EditableAltCurve : GraphicsItem
 			m.AddOption( $"Delete (Del)", "delete", () => DeleteSelection() );
 
 			m.AddOption( $"Flatten (6)", "horizontal_rule", () => SetSelectionTangentFlat() )
-				.Enabled = _selectedKeyframes.Any( x => x.Interpolation == Interpolation.Cubic ); // Only if we have at least 1 cubic key selected
+				.Enabled = SelectedKeyframes.Any( x => x.Interpolation == Interpolation.Cubic ); // Only if we have at least 1 cubic key selected
 
 			// Interpolation 
 			m.AddSeparator();
@@ -1380,16 +1394,18 @@ public partial class EditableAltCurve : GraphicsItem
 
 		// Always show pre/post infinity & select all:
 		m.AddSeparator();
-		AddExtrapolationMenu( m, "Pre-Infinity", "west", RawCurve.PreInfinity, ( value ) =>
+		AddExtrapolationMenu( m, "Pre-Infinity", "west", _extrapolationPreInfinity, ( value ) =>
 		{
-			RawCurve = RawCurve with { PreInfinity = value };
-			Update();
+			PushUndoState("Changed curve pre-infinity");
+			_extrapolationPreInfinity = value;
+			RebuildSanitizedCurve();
 		} );
 
-		AddExtrapolationMenu( m, "Post-Infinity", "east", RawCurve.PostInfinity, ( value ) =>
+		AddExtrapolationMenu( m, "Post-Infinity", "east", _extrapolationPostInfinity, ( value ) =>
 		{
-			RawCurve = RawCurve with { PostInfinity = value };
-			Update();
+			PushUndoState( "Changed curve post-infinity" );
+			_extrapolationPostInfinity = value;
+			RebuildSanitizedCurve();
 		} );
 
 		m.AddSeparator();
