@@ -37,7 +37,7 @@ public readonly partial record struct AltCurve
 	/// <summary>
 	/// The total timespan of the curve, from the first keyframe to the last
 	/// </summary>
-	public float TimeSpan => TimeRange.Max - TimeRange.Min;
+	public float TimeSpan { get; init; }
 
 	/// <summary>
 	/// The min/max value observed across all keyframes, including curves that extend above/below their keyframes.
@@ -72,6 +72,7 @@ public readonly partial record struct AltCurve
 			}
 		}
 
+		TimeSpan = Keyframes[^1].Time - Keyframes[0].Time;
 		TimeRange = (Keyframes[0].Time, Keyframes[^1].Time);
 		ValueRange = (Keyframes[0].Value, Keyframes[0].Value);
 
@@ -80,7 +81,7 @@ public readonly partial record struct AltCurve
 			float totalMin = float.MaxValue;
 			float totalMax = float.MinValue;
 
-			var ranges = new List<(float Min, float Max)>( Keyframes.Length );
+			List<(float Min, float Max)> ranges = new( Keyframes.Length );
 			for ( int i = 0; i < Keyframes.Length - 1; i++ )
 			{
 				// Bare minimum this value range should contain the min/max of the values themselves
@@ -172,8 +173,8 @@ public readonly partial record struct AltCurve
 			return Keyframes[0].Value; // Only one keyframe, return its value
 
 		// Normalize the time & calculate offset for any times that fall outside our keyframe range
-		var normalizedTime = time;
-		var accumulatedOffset = 0.0f;
+		float normalizedTime = time;
+		float accumulatedOffset = 0.0f;
 
 		if ( time < TimeRange.Min )
 			(normalizedTime, accumulatedOffset) = HandlePreInfinity( time );
@@ -217,7 +218,7 @@ public readonly partial record struct AltCurve
 				return (TimeRange.Max - (cycleOffset % TimeSpan), 0.0f);
 
 			case Extrapolation.CycleOffset:
-				var cycleOffsetOffset = TimeRange.Min - time;
+				float cycleOffsetOffset = TimeRange.Min - time;
 				float cycleVerticalOffset = -(float)((Math.Floor( cycleOffsetOffset / TimeSpan ) + 1.0) * (Keyframes[^1].Value - Keyframes[0].Value));
 				return (TimeRange.Max - (cycleOffsetOffset % TimeSpan), cycleVerticalOffset);
 
@@ -284,15 +285,15 @@ public readonly partial record struct AltCurve
 			case Interpolation.Linear:
 				{
 					// The intermediate math operations are done with doubles to help preserve accuracy
-					var interpTime = (time - keyframeA.Time) / (keyframeB.Time - keyframeA.Time);
+					float interpTime = (time - keyframeA.Time) / (keyframeB.Time - keyframeA.Time);
 					return keyframeA.Value + (keyframeB.Value - keyframeA.Value) * interpTime;
 				}
 
 			case Interpolation.Cubic:
 				{
 					// Build the cubic Bezier curve where the first/last points are the keyframe values, and the middle points are the tangent offset positions
-					var interpTime = (time - keyframeA.Time) / (keyframeB.Time - keyframeA.Time);
-					var tangentFactor = 0.4f;
+					float interpTime = (time - keyframeA.Time) / (keyframeB.Time - keyframeA.Time);
+					float tangentFactor = 0.4f;
 					return Bezier1D( interpTime,
 						keyframeA.Value,
 						keyframeA.Value + (keyframeA.TangentOut * (keyframeB.Time - keyframeA.Time) * tangentFactor),
@@ -311,12 +312,12 @@ public readonly partial record struct AltCurve
 	[MethodImpl( MethodImplOptions.AggressiveInlining )]
 	private static float Bezier1D( float t, float p0, float p1, float p2, float p3 )
 	{
-		var line1Frac = p0 + t * (p1 - p0);
-		var line2Frac = p1 + t * (p2 - p1);
-		var line3Frac = p2 + t * (p3 - p2);
+		float line1Frac = p0 + t * (p1 - p0);
+		float line2Frac = p1 + t * (p2 - p1);
+		float line3Frac = p2 + t * (p3 - p2);
 
-		var subLine1Frac = line1Frac + t * (line2Frac - line1Frac);
-		var subLine2Frac = line2Frac + t * (line3Frac - line2Frac);
+		float subLine1Frac = line1Frac + t * (line2Frac - line1Frac);
+		float subLine2Frac = line2Frac + t * (line3Frac - line2Frac);
 
 		return subLine1Frac + t * (subLine2Frac - subLine1Frac);
 	}

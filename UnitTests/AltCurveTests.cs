@@ -257,7 +257,7 @@ public partial class AltCurveTests
 		var rand = new Random();
 
 		var positions = new List<Vector2>();
-		for( int i = 0; i < 1; i++ )
+		for ( int i = 0; i < 1; i++ )
 		{
 			positions.Add( new Vector2( Random.Shared.Float( -1000, 1000 ), Random.Shared.Float( -1000, 1000 ) ) );
 		}
@@ -265,7 +265,7 @@ public partial class AltCurveTests
 		var orderedPos = positions.OrderBy( x => x.x );
 
 		var altCurve = new AltCurve( orderedPos.Select( x => new Keyframe( x.x, x.y, Interpolation.Linear ) ).ToList(), Extrapolation.Constant, Extrapolation.Constant );
-		var baseCurve = new Curve( orderedPos.Select(x=> new Curve.Frame(x.x, x.y)).ToList() );
+		var baseCurve = new Curve( orderedPos.Select( x => new Curve.Frame( x.x, x.y ) ).ToList() );
 
 		var times = new List<float>();
 		for ( int i = 0; i < 1000; i++ )
@@ -277,7 +277,7 @@ public partial class AltCurveTests
 		var baseTimeSamples = new List<long>();
 		var ourTimeSamples = new List<long>();
 
-		for ( int i = 0; i < 10000; i++)
+		for ( int i = 0; i < 10000; i++ )
 		{
 			ourTime.Restart();
 			foreach ( var time in times ) altCurve.Evaluate( time );
@@ -340,7 +340,7 @@ public partial class AltCurveTests
 		var sanitizedOverlap = SanitizeKeyframes( overlappingKeyframes );
 
 		Assert.AreNotEqual( sanitizedOverlap.Count(), overlappingKeyframes.Length, "Sanitizing keyframes should remove all duplicate times" );
-		Assert.AreEqual( 1.0f, sanitizedOverlap.ElementAt(1).Value, 0.0001f, "If multiple times are provided we should always take the first instance." );
+		Assert.AreEqual( 1.0f, sanitizedOverlap.ElementAt( 1 ).Value, 0.0001f, "If multiple times are provided we should always take the first instance." );
 
 		ImmutableArray<Keyframe> keyframesOutOfOrder = ImmutableArray.Create(
 			new Keyframe( 3.0f, 2.0f, Interpolation.Linear ),
@@ -349,8 +349,67 @@ public partial class AltCurveTests
 			new Keyframe( 1.0f, 1.0f, Interpolation.Linear )
 		);
 		var sanitizedOrder = SanitizeKeyframes( keyframesOutOfOrder );
-		Assert.AreEqual( keyframesOutOfOrder.Length, sanitizedOrder.Count(), "Sanitization shouldn't incorrectly remove a valid but out of order set of times.");
+		Assert.AreEqual( keyframesOutOfOrder.Length, sanitizedOrder.Count(), "Sanitization shouldn't incorrectly remove a valid but out of order set of times." );
 		Assert.IsFalse( sanitizedOrder.SequenceEqual( keyframesOutOfOrder ), "Sanitization should correctly reorder out of order keyframes." );
 		Assert.IsTrue( sanitizedOrder.All( san => keyframesOutOfOrder.Contains( san ) ), "Sanitization should not alter any keyframes when reordering." );
+	}
+
+	[TestMethod]
+	public void ValidTimeSpan()
+	{
+		var keyframes = new List<Keyframe>
+		{
+			new( 5.0f, 0.0f, Interpolation.Linear ),
+			new( 10.0f, 1.0f, Interpolation.Linear ),
+			new( 15.0f, 2.0f, Interpolation.Linear ),
+			new( 20.0f, 3.0f, Interpolation.Linear )
+		};
+		AltCurve curve = new( keyframes, Extrapolation.Linear, Extrapolation.Linear );
+		Assert.AreEqual( curve.TimeSpan, 15.0f );
+	}
+
+	[TestMethod]
+	public void ValidTimeRange()
+	{
+		var keyframes = new List<Keyframe>
+		{
+			new( 5.0f, 0.0f, Interpolation.Linear ),
+			new( 10.0f, 1.0f, Interpolation.Linear ),
+			new( 15.0f, 2.0f, Interpolation.Linear ),
+			new( 20.0f, 3.0f, Interpolation.Linear )
+		};
+		AltCurve curve = new( keyframes, Extrapolation.Linear, Extrapolation.Linear );
+		Assert.AreEqual( curve.TimeRange.Min, 5.0f, float.Epsilon );
+		Assert.AreEqual( curve.TimeRange.Max, 20.0f, float.Epsilon );
+	}
+
+	[TestMethod]
+	public void ValidValueRange()
+	{
+		var keyframes = new List<Keyframe>
+		{
+			new( 5.0f, 10.0f, Interpolation.Linear ),
+			new( 10.0f, 51.0f, Interpolation.Linear ),
+			new( 15.0f, 92.0f, Interpolation.Linear ),
+			new( 20.0f, 167.0f, Interpolation.Linear )
+		};
+		AltCurve curve = new( keyframes, Extrapolation.Linear, Extrapolation.Linear );
+		Assert.AreEqual( curve.ValueRange.Min, 10.0f, float.Epsilon );
+		Assert.AreEqual( curve.ValueRange.Max, 167.0f, float.Epsilon );
+	}
+
+	[TestMethod]
+	public void ValidValueRangeCubic()
+	{
+		var keyframes = new List<Keyframe>
+		{
+			new( 5.0f, 10.0f, Interpolation.Linear ),
+			new( 10.0f, 51.0f, Interpolation.Linear ),
+			new( 15.0f, 92.0f, Interpolation.Linear ),
+			new( 20.0f, 167.0f, Interpolation.Linear )
+		};
+		AltCurve curve = new( keyframes, Extrapolation.Linear, Extrapolation.Linear );
+		Assert.AreEqual( curve.ValueRange.Min, 10.0f, float.Epsilon );
+		Assert.AreEqual( curve.ValueRange.Max, 167.0f, float.Epsilon );
 	}
 }
