@@ -3,6 +3,7 @@ using Sandbox;
 using Sandbox.Diagnostics;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using static AltCurves.AltCurve;
 
@@ -184,7 +185,7 @@ public partial class EditableAltCurve : GraphicsItem
 	/// </summary>
 	public bool HasSelectedKeyframe => _selectedIndicies.Any();
 
-	private record struct HistoryEntry( string Operation, List<Keyframe> Keyframes, Extrapolation PreInfinity, Extrapolation PostInfinity );
+	private record struct HistoryEntry( string Operation, ImmutableArray<Keyframe> Keyframes, Extrapolation PreInfinity, Extrapolation PostInfinity );
 	private readonly Stack<HistoryEntry> _curveHistory = new(); // In lieu of any sensible undo/redo system in S&box, let's just roll our own. I miss the UE transaction system.
 	private readonly Stack<HistoryEntry> _curveRedoHistory = new(); // State of the curve gets pushed on undo, popped when redoing
 
@@ -216,15 +217,14 @@ public partial class EditableAltCurve : GraphicsItem
 	/// <summary>
 	/// A entirely brand new curve has been provided (probably from external editing)
 	/// </summary>
-	private void SetRawCurve( IEnumerable<Keyframe> keyframes, Extrapolation preInfinity, Extrapolation postInfinity )
+	private void SetRawCurve( ImmutableArray<Keyframe> keyframes, Extrapolation preInfinity, Extrapolation postInfinity )
 	{
 		// Clear selection state for any new curves coming in given rebuilding
 		_selectedIndicies.Clear();
 		SelectionState = new();
 		SelectedInterpolation = null;
 
-		_rawCurveKeyframes = keyframes.ToList();
-
+		_rawCurveKeyframes = keyframes.IsDefaultOrEmpty ? new() { new Keyframe() } : keyframes.ToList();
 		_extrapolationPreInfinity = preInfinity;
 		_extrapolationPostInfinity = postInfinity;
 
@@ -1293,7 +1293,7 @@ public partial class EditableAltCurve : GraphicsItem
 	public void PushUndoState( string operation )
 	{
 		// Push a COPY of the keyframe onto the stack
-		_curveHistory.Push( new( operation, _rawCurveKeyframes.ToList(), _extrapolationPreInfinity, _extrapolationPostInfinity ) );
+		_curveHistory.Push( new( operation, _rawCurveKeyframes.ToImmutableArray(), _extrapolationPreInfinity, _extrapolationPostInfinity ) );
 		_curveRedoHistory.Clear(); // A new undo-worthy change flushes the redo stack
 	}
 
@@ -1313,7 +1313,7 @@ public partial class EditableAltCurve : GraphicsItem
 		}
 
 		var undo = _curveHistory.Pop();
-		_curveRedoHistory.Push( new( undo.Operation, _rawCurveKeyframes, _extrapolationPreInfinity, _extrapolationPostInfinity ) );
+		_curveRedoHistory.Push( new( undo.Operation, _rawCurveKeyframes.ToImmutableArray(), _extrapolationPreInfinity, _extrapolationPostInfinity ) );
 		OnUndoRedo.Invoke( false, undo.Operation );
 
 		SetRawCurve( undo.Keyframes, undo.PreInfinity, undo.PostInfinity );
@@ -1335,7 +1335,7 @@ public partial class EditableAltCurve : GraphicsItem
 		}
 
 		var undo = _curveRedoHistory.Pop();
-		_curveHistory.Push( new( undo.Operation, _rawCurveKeyframes, _extrapolationPreInfinity, _extrapolationPostInfinity ) );
+		_curveHistory.Push( new( undo.Operation, _rawCurveKeyframes.ToImmutableArray(), _extrapolationPreInfinity, _extrapolationPostInfinity ) );
 		OnUndoRedo.Invoke( true, undo.Operation );
 
 		SetRawCurve( undo.Keyframes, undo.PreInfinity, undo.PostInfinity );
