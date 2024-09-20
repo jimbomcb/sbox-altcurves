@@ -12,6 +12,9 @@ _Navigation and View:_
 **Ctrl+A:** Select all  
 **Ctrl+Z:** Undo  
 **Ctrl+Y:** Redo
+**Scroll:** Zoom
+**Scroll (Shift):** Zoom Vertical
+**Scroll (Ctrl):** Zoom Horizontal
  
 _Snapping and Axis Locking:_  
 **Z:** Toggle time snapping  
