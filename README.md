@@ -11,9 +11,9 @@ _Navigation and View:_
 **Delete:** Remove selected keyframes  
 **Ctrl+A:** Select all  
 **Ctrl+Z:** Undo  
-**Ctrl+Y:** Redo
-**Scroll:** Zoom
-**Scroll (Shift):** Zoom Vertical
+**Ctrl+Y:** Redo  
+**Scroll:** Zoom  
+**Scroll (Shift):** Zoom Vertical  
 **Scroll (Ctrl):** Zoom Horizontal
  
 _Snapping and Axis Locking:_  
