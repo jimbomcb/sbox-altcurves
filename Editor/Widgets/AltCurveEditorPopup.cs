@@ -34,6 +34,7 @@ public class AltCurveEditorPopup : Widget
 
 	public void SetCurve( SerializedProperty serializedProperty, Action onChanged )
 	{
+		WindowTitle = $"{serializedProperty.Name} - Alternative Curve Editor";
 		Editor.SetCurve( () => serializedProperty.GetValue<AltCurve>(), v => { serializedProperty.SetValue( v ); onChanged?.Invoke(); } );
 	}
 }
