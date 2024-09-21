@@ -169,11 +169,11 @@ public readonly partial record struct AltCurve
 	/// Time complexity: O(log n)
 	/// </summary>
 	[MethodImpl( MethodImplOptions.AggressiveInlining )] // Notable gains from profiling
-	public readonly float Evaluate( float time )
+	public readonly float Evaluate( float time, float emptyValue = 0.0f )
 	{
 		// Evaluations on an empty curve will always evaluate as 0
 		if ( Keyframes.IsDefault || Keyframes.Length == 0 )
-			return 0.0f;
+			return emptyValue;
 
 		if ( Keyframes.Length == 1 )
 			return Keyframes[0].Value; // Only one keyframe, return its value
