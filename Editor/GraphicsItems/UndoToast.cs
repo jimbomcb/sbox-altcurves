@@ -36,7 +36,7 @@ public class UndoToast : GraphicsItem
 
 	protected override void OnPaint()
 	{
-		Paint.SetBrushAndPen( Theme.WidgetBackground, Theme.White );
+		Paint.SetBrushAndPen( Theme.WidgetBackground, Color.White );
 		Paint.SetFont( "Poppins", 12, 550 );
 		Paint.DrawRect( new( Vector2.Zero, Size ), 5.0f );
 

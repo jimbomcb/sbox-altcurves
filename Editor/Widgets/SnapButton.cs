@@ -82,7 +82,7 @@ internal abstract class SnapButton<T> : Widget
 		Layout.Add( _snapToggle = new Button( _text )
 		{
 			VerticalSizeMode = SizeMode.CanGrow,
-			ButtonType = SnapEnabled && !ForcefullyDisabled ? "primary" : "",
+			Tint = SnapEnabled && !ForcefullyDisabled ? Theme.Primary : "#48494c", // Hard coded for now
 			ToolTip = $"Toggle {_text} (Shortcut: {_shortcut})"
 		} );
 		_snapToggle.MouseClick += () => SnapEnabled = !SnapEnabled;

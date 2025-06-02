@@ -719,7 +719,7 @@ public partial class EditableAltCurve : GraphicsItem
 			var (hoverTime, hoverValue, _) = GetHoverInfo( _lastMousePos );
 			var hoverPos = _curveTransform.CurveToWidgetPosition( new( hoverTime, hoverValue ) );
 
-			Paint.SetPen( Theme.White );
+			Paint.SetPen( Color.White );
 			Paint.DrawCircle( hoverPos, 4.0f );
 		}
 
@@ -1430,7 +1430,7 @@ public partial class EditableAltCurve : GraphicsItem
 				Checked = currentExtrap == Extrapolation.Linear
 			} );
 			linear.SetIcon( CurveTextures.Instance.ExtrapLinearPixmap );
-			linear.Tooltip = "Linearly extrapolate";
+			linear.ToolTip = "Linearly extrapolate";
 			// JMCB TODO: Why do tooltips not work in the context menus :(
 			linear.Enabled = true;
 

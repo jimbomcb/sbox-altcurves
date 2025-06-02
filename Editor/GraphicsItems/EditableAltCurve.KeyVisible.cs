@@ -145,10 +145,10 @@ public partial class EditableAltCurve
 				float inAngle = MathF.Atan( _keyframe.TangentIn * _transform.WidgetCurveAspectRatio );
 				var inOffset = new Vector2( -MathF.Cos( inAngle ), MathF.Sin( inAngle ) ) * KeyTangent.TANGENT_RADIUS;
 
-				Paint.SetPen( Theme.White.WithAlpha( 0.4f ), style: PenStyle.Dash );
+				Paint.SetPen( Color.White.WithAlpha( 0.4f ), style: PenStyle.Dash );
 				Paint.DrawLine( Size * 0.5f, inOffset + (TangentIn.Size * 0.5f) );
 
-				Paint.SetPen( Theme.White.WithAlpha( 0.8f ) );
+				Paint.SetPen( Color.White.WithAlpha( 0.8f ) );
 				Paint.SetBrush( TangentIn.Hovered ? Theme.Red : Theme.Red.Darken( 0.3f ) );
 				Paint.DrawCircle( inOffset + (TangentIn.Size * 0.5f), TangentIn.Size - 3.0f );
 			}
@@ -158,17 +158,17 @@ public partial class EditableAltCurve
 				float outAngle = MathF.Atan( _keyframe.TangentOut * _transform.WidgetCurveAspectRatio );
 				var outOffset = new Vector2( MathF.Cos( outAngle ), -MathF.Sin( outAngle ) ) * KeyTangent.TANGENT_RADIUS;
 
-				Paint.SetPen( Theme.White.WithAlpha( 0.4f ), style: PenStyle.Dash );
+				Paint.SetPen( Color.White.WithAlpha( 0.4f ), style: PenStyle.Dash );
 				Paint.DrawLine( Size * 0.5f, outOffset + (TangentOut.Size * 0.5f) );
 
-				Paint.SetPen( Theme.White.WithAlpha( 0.8f ) );
+				Paint.SetPen( Color.White.WithAlpha( 0.8f ) );
 				Paint.SetBrush( TangentOut.Hovered ? Theme.Blue : Theme.Blue.Darken( 0.3f ) );
 				Paint.DrawCircle( outOffset + (TangentOut.Size * 0.5f), TangentOut.Size - 3.0f );
 			}
 
 			// Per-interpolation icons
-			Paint.SetPen( Theme.Black );
-			Paint.SetBrush( UserSelected ? Theme.White : Theme.White.Darken( 0.3f ) );
+			Paint.SetPen( Color.Black );
+			Paint.SetBrush( UserSelected ? Color.White : Color.White.Darken( 0.3f ) );
 			switch ( _keyframe.Interpolation )
 			{
 				case Interpolation.Linear:
